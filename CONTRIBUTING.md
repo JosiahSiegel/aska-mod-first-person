@@ -132,13 +132,18 @@ Press **F8** in-game to trigger a dump, then check `LogOutput.log`.
 
 ### Submitting changes
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-change`
-3. Make your changes
-4. Test on both a **new game** and an **established save** (equipment sub-skeletons and character state differ significantly)
-5. Verify the build: `dotnet build -c Release`
-6. Commit with a clear message describing **what** and **why**
-7. Open a pull request against `main`
+**All contributions must be submitted via Pull Request.** Direct pushes to `main` are not accepted — the `main` branch is protected. This ensures every change is reviewed and tested before merging.
+
+1. **Fork** the repository on GitHub
+2. **Clone** your fork: `git clone https://github.com/YOUR_USERNAME/aska-first-person.git`
+3. **Create a feature branch:** `git checkout -b feature/my-change`
+4. Make your changes
+5. **Test** on both a **new game** and an **established save** (equipment sub-skeletons and character state differ significantly)
+6. **Verify the build:** `dotnet build -c Release`
+7. **Commit** with a clear message describing **what** and **why**
+8. **Push** to your fork: `git push origin feature/my-change`
+9. **Open a Pull Request** against `main` on the upstream repository
+10. Respond to any review feedback
 
 ### Code guidelines
 
@@ -160,14 +165,26 @@ Press **F8** in-game to trigger a dump, then check `LogOutput.log`.
 
 ## Releasing
 
-Releases are automated via GitHub Actions. To publish a new version:
+> **Note:** The project cannot be built in CI because it depends on BepInEx interop DLLs
+> generated at runtime on each machine. Builds are done locally.
+
+To publish a new version:
 
 1. Update the version in `FirstPersonPlugin.cs` (`PluginVersion`) and `thunderstore/manifest.json` (`version_number`)
-2. Commit: `git commit -am "Bump version to X.Y.Z"`
-3. Tag: `git tag vX.Y.Z`
-4. Push: `git push origin main --tags`
-
-The workflow builds the plugin, packages a Thunderstore-compatible zip, and creates a GitHub Release with both artifacts attached. Upload the zip to [Thunderstore](https://thunderstore.io/c/aska/) and [Nexus Mods](https://www.nexusmods.com/aska/) manually.
+2. Build and package locally:
+   ```bash
+   ./package.sh
+   ```
+   This produces `dist/AskaFirstPerson.dll` and `dist/AskaFirstPerson-X.Y.Z.zip`.
+3. Commit and tag:
+   ```bash
+   git commit -am "Bump version to X.Y.Z"
+   git tag vX.Y.Z
+   git push origin main --tags
+   ```
+4. A GitHub Release is auto-created by the workflow. Upload both files from `dist/` to it.
+5. Upload `dist/AskaFirstPerson-X.Y.Z.zip` to [Thunderstore](https://thunderstore.io/c/aska/)
+6. Upload `dist/AskaFirstPerson.dll` to [Nexus Mods](https://www.nexusmods.com/aska/)
 
 ## License
 

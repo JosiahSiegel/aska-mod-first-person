@@ -9,7 +9,13 @@
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
   </PropertyGroup>
+
+  <!-- Exclude Discovery dev tool from this project's compilation -->
+  <ItemGroup>
+    <Compile Remove="Discovery\**" />
+  </ItemGroup>
 
   <PropertyGroup>
     <R2ModManDir Condition="'$(R2ModManDir)' == ''">$(APPDATA)\r2modmanPlus-local\ASKA\profiles\Default\BepInEx</R2ModManDir>

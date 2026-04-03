@@ -76,7 +76,7 @@ After first launch, edit `BepInEx/config/com.community.askafirstperson.cfg`:
 
 ## Requirements
 
-- Aska (Steam Early Access)
+- Aska (Steam)
 - BepInEx 6 Bleeding Edge (IL2CPP build #755 or newer)
 
 ## Compatibility

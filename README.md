@@ -69,6 +69,39 @@ You can edit it with any text editor, or press **F1** in-game if you have [BepIn
 - Compatible with other BepInEx IL2CPP mods
 - After major Aska updates, delete `BepInEx/interop/` and relaunch to regenerate assemblies
 
+## Sunshine / Moonlight (Remote Play / Steam Deck)
+
+If you use [Sunshine](https://github.com/LizardByte/Sunshine) and [Moonlight](https://moonlight-stream.org/) to stream games to a Steam Deck or another device, r2modman's "Start modded" button won't help — you need mods loaded when Aska launches directly from Steam.
+
+### Setup (one-time)
+
+Copy the entire r2modman profile into your Aska game folder so BepInEx and all mods are installed alongside the game executable:
+
+**Windows (Git Bash / MSYS2):**
+```bash
+cp -r "$APPDATA/r2modmanPlus-local/ASKA/profiles/Default/"* \
+  "C:/Program Files (x86)/Steam/steamapps/common/ASKA/"
+```
+
+**PowerShell:**
+```powershell
+Copy-Item -Recurse -Force `
+  "$env:APPDATA\r2modmanPlus-local\ASKA\profiles\Default\*" `
+  "C:\Program Files (x86)\Steam\steamapps\common\ASKA\"
+```
+
+> Adjust the Aska path if your Steam library is on a different drive.
+
+After copying, launch Aska normally from Steam. BepInEx will load automatically via `winhttp.dll` proxy injection — no special launch options needed. Moonlight streams whatever is on your host screen, so the modded game works seamlessly.
+
+### After updating mods
+
+When you install or update mods in r2modman, re-run the copy command above to sync changes to the game folder.
+
+### Reverting to unmodded
+
+To launch Aska without mods, delete (or rename) `winhttp.dll` and `doorstop_config.ini` from the Aska game folder. The mod files in `BepInEx/` are harmless if the loader isn't active.
+
 ## Troubleshooting
 
 - **Mod not loading:** Make sure you have BepInEx **6** IL2CPP (not BepInEx 5). The DLL must be in `BepInEx/plugins/`, not the game root.

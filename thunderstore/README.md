@@ -86,6 +86,27 @@ After first launch, edit `BepInEx/config/com.community.askafirstperson.cfg`:
 - Compatible with other BepInEx IL2CPP mods
 - May need updates after major Aska patches (delete `BepInEx/interop/` and relaunch to regenerate)
 
+## Sunshine / Moonlight (Remote Play / Steam Deck)
+
+If you stream Aska to a Steam Deck or another device via [Sunshine](https://github.com/LizardByte/Sunshine) + [Moonlight](https://moonlight-stream.org/), you need mods installed directly in the game folder (r2modman's "Start modded" won't work over a stream).
+
+Copy your r2modman profile to the game folder:
+
+```bash
+# Git Bash / MSYS2
+cp -r "$APPDATA/r2modmanPlus-local/ASKA/profiles/Default/"* \
+  "C:/Program Files (x86)/Steam/steamapps/common/ASKA/"
+```
+
+```powershell
+# PowerShell
+Copy-Item -Recurse -Force `
+  "$env:APPDATA\r2modmanPlus-local\ASKA\profiles\Default\*" `
+  "C:\Program Files (x86)\Steam\steamapps\common\ASKA\"
+```
+
+Then launch Aska normally from Steam -- mods load automatically. Re-run the copy after updating mods in r2modman. To revert, delete `winhttp.dll` and `doorstop_config.ini` from the game folder.
+
 ## Troubleshooting
 
 - **Plugin not loading:** Ensure you have BepInEx 6 IL2CPP (not BepInEx 5), and the DLL is in `BepInEx/plugins/`

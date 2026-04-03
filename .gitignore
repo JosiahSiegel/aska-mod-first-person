@@ -1,0 +1,25 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio / Rider
+*.user
+*.suo
+.vs/
+*.DotSettings.user
+_ReSharper*/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Thunderstore icon (generated/large, not source-controlled)
+thunderstore/icon.png
+
+# Discovery dev tool build artifacts
+Discovery/bin/
+Discovery/obj/
+
+# Agent guidance (dev notes, not part of the mod)
+agent-guidance.md

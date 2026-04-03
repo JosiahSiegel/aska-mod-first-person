@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "6.0.x"
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create reference stubs and build
+        run: |
+          # The project references BepInEx core and IL2CPP interop DLLs that are
+          # generated at runtime on each machine and cannot be redistributed.
+          # We create minimal stub DLLs so dotnet can resolve references and
+          # compile the plugin source. The real assemblies are loaded by BepInEx
+          # at runtime via IL2CPP interop.
+
+          STUB_DIR="$RUNNER_TEMP/stubs"
+          CORE_DIR="$STUB_DIR/core"
+          INTEROP_DIR="$STUB_DIR/interop"
+          mkdir -p "$CORE_DIR" "$INTEROP_DIR"
+
+          # Locate the Roslyn compiler shipped with the SDK
+          CSC=$(find /usr/share/dotnet -name "csc.dll" -path "*/Roslyn/*" 2>/dev/null | head -1)
+          if [ -z "$CSC" ]; then
+            echo "::error::Could not find csc.dll in .NET SDK"
+            exit 1
+          fi
+
+          create_stub() {
+            local name="$1" outdir="$2"
+            local src="$RUNNER_TEMP/${name}.cs"
+            echo "[assembly: System.Reflection.AssemblyTitle(\"${name}\")]" > "$src"
+            dotnet exec "$CSC" -target:library -out:"${outdir}/${name}.dll" \
+              -nologo -nowarn:CS8021 "$src" > /dev/null 2>&1
+          }
+
+          # BepInEx core
+          for dll in BepInEx.Core BepInEx.Unity.IL2CPP 0Harmony Il2CppInterop.Runtime; do
+            create_stub "$dll" "$CORE_DIR"
+          done
+
+          # IL2CPP interop assemblies
+          for dll in Il2Cppmscorlib UnityEngine UnityEngine.CoreModule \
+                     UnityEngine.AnimationModule UnityEngine.InputLegacyModule \
+                     UnityEngine.PhysicsModule Assembly-CSharp Cinemachine \
+                     Unity.InputSystem Fusion.Runtime; do
+            create_stub "$dll" "$INTEROP_DIR"
+          done
+
+          # Build the plugin against the stubs
+          dotnet build AskaFirstPerson.csproj \
+            -c Release \
+            -p:R2ModManDir="$STUB_DIR" \
+            -nowarn:CS8021
+
+          # Verify output
+          DLL="bin/Release/net6.0/AskaFirstPerson.dll"
+          if [ ! -f "$DLL" ]; then
+            echo "::error::Build produced no output at $DLL"
+            exit 1
+          fi
+          echo "Build successful: $(ls -lh "$DLL")"
+
+      - name: Package Thunderstore zip
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG="$RUNNER_TEMP/thunderstore-pkg"
+          mkdir -p "$PKG/BepInEx/plugins/AskaFirstPerson"
+
+          cp bin/Release/net6.0/AskaFirstPerson.dll "$PKG/BepInEx/plugins/AskaFirstPerson/"
+          cp thunderstore/manifest.json "$PKG/"
+          cp thunderstore/README.md "$PKG/"
+
+          if [ -f thunderstore/icon.png ]; then
+            cp thunderstore/icon.png "$PKG/"
+          else
+            echo "::warning::thunderstore/icon.png not found -- Thunderstore requires a 256x256 PNG icon. Add one before uploading."
+          fi
+
+          cd "$PKG"
+          zip -r "$RUNNER_TEMP/AskaFirstPerson-${VERSION}.zip" .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Aska First Person Camera v${{ steps.version.outputs.version }}"
+          generate_release_notes: true
+          files: |
+            bin/Release/net6.0/AskaFirstPerson.dll
+            ${{ runner.temp }}/AskaFirstPerson-${{ steps.version.outputs.version }}.zip

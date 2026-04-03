@@ -26,52 +26,133 @@ jobs:
 
       - name: Create reference stubs and build
         run: |
-          # The project references BepInEx core and IL2CPP interop DLLs that are
-          # generated at runtime on each machine and cannot be redistributed.
-          # We create minimal stub DLLs so dotnet can resolve references and
-          # compile the plugin source. The real assemblies are loaded by BepInEx
-          # at runtime via IL2CPP interop.
-
           STUB_DIR="$RUNNER_TEMP/stubs"
           CORE_DIR="$STUB_DIR/core"
           INTEROP_DIR="$STUB_DIR/interop"
           mkdir -p "$CORE_DIR" "$INTEROP_DIR"
 
-          # Locate the Roslyn compiler shipped with the SDK
-          CSC=$(find /usr/share/dotnet -name "csc.dll" -path "*/Roslyn/*" 2>/dev/null | head -1)
-          if [ -z "$CSC" ]; then
-            echo "::error::Could not find csc.dll in .NET SDK"
-            exit 1
-          fi
+          # Create a stub project that generates all required reference DLLs.
+          # These contain just enough type declarations for the compiler to
+          # resolve references. BepInEx loads the real assemblies at runtime.
+          STUBPROJ="$RUNNER_TEMP/stubgen"
+          mkdir -p "$STUBPROJ"
 
-          create_stub() {
-            local name="$1" outdir="$2"
-            local src="$RUNNER_TEMP/${name}.cs"
-            echo "[assembly: System.Reflection.AssemblyTitle(\"${name}\")]" > "$src"
-            dotnet exec "$CSC" -target:library -out:"${outdir}/${name}.dll" \
-              -nologo -nowarn:CS8021 "$src" > /dev/null 2>&1
+          cat > "$STUBPROJ/stubgen.csproj" << 'CSPROJ'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+              <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+              <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+            </PropertyGroup>
+          </Project>
+          CSPROJ
+
+          # Generate individual stub DLLs by compiling minimal type declarations
+          generate_stub() {
+            local name="$1" outdir="$2" src="$3"
+            local projdir="$RUNNER_TEMP/stub_$name"
+            mkdir -p "$projdir"
+            cp "$STUBPROJ/stubgen.csproj" "$projdir/$name.csproj"
+            cat > "$projdir/Stub.cs" << STUBEOF
+          $src
+          STUBEOF
+            dotnet build "$projdir/$name.csproj" -c Release -o "$outdir" \
+              -p:AssemblyName="$name" -nowarn:CS8021 --nologo -v:q 2>&1 | tail -1
           }
 
-          # BepInEx core
-          for dll in BepInEx.Core BepInEx.Unity.IL2CPP 0Harmony Il2CppInterop.Runtime; do
-            create_stub "$dll" "$CORE_DIR"
-          done
+          # --- BepInEx Core stubs ---
+          generate_stub "BepInEx.Core" "$CORE_DIR" '
+          namespace BepInEx {
+            public class BasePlugin { public BepInEx.Logging.ManualLogSource Log => null; public virtual void Load() {} public void AddComponent<T>() where T : class {} }
+            [System.AttributeUsage(System.AttributeTargets.Class)] public class BepInPluginAttribute : System.Attribute { public BepInPluginAttribute(string a, string b, string c) {} }
+            namespace Logging { public class ManualLogSource { public void LogInfo(object o) {} public void LogWarning(object o) {} public void LogError(object o) {} } }
+            namespace Configuration {
+              public class ConfigEntry<T> { public T Value => default; }
+              public class ConfigDescription { public ConfigDescription(string d, AcceptableValueBase r = null) {} }
+              public abstract class AcceptableValueBase {}
+              public class AcceptableValueRange<T> : AcceptableValueBase where T : System.IComparable { public AcceptableValueRange(T a, T b) {} }
+              public static class ConfigFileExtensions {}
+            }
+          }
+          namespace BepInEx.Unity.IL2CPP { public class BasePlugin : BepInEx.BasePlugin {} }'
 
-          # IL2CPP interop assemblies
-          for dll in Il2Cppmscorlib UnityEngine UnityEngine.CoreModule \
-                     UnityEngine.AnimationModule UnityEngine.InputLegacyModule \
-                     UnityEngine.PhysicsModule Assembly-CSharp Cinemachine \
-                     Unity.InputSystem Fusion.Runtime; do
-            create_stub "$dll" "$INTEROP_DIR"
-          done
+          generate_stub "0Harmony" "$CORE_DIR" '
+          namespace HarmonyLib {
+            public class Harmony { public Harmony(string id) {} public void PatchAll() {} }
+            [System.AttributeUsage(System.AttributeTargets.Class|System.AttributeTargets.Method)] public class HarmonyPatch : System.Attribute { public HarmonyPatch(string a, string b) {} public HarmonyPatch(System.Type t, string m) {} }
+            [System.AttributeUsage(System.AttributeTargets.Method)] public class HarmonyPrefix : System.Attribute {}
+          }'
 
-          # Build the plugin against the stubs
+          generate_stub "Il2CppInterop.Runtime" "$CORE_DIR" '
+          namespace Il2CppInterop.Runtime { public static class Il2CppType {} }'
+
+          # --- Interop stubs ---
+          generate_stub "Il2Cppmscorlib" "$INTEROP_DIR" '
+          namespace Il2CppSystem { public class Object {} }'
+
+          generate_stub "UnityEngine.CoreModule" "$INTEROP_DIR" '
+          namespace UnityEngine {
+            public class Object : Il2CppSystem.Object { public string name { get; set; } public static void Destroy(Object o) {} }
+            public class Component : Object { public GameObject gameObject => null; public Transform transform => null; public T GetComponent<T>() => default; public T[] GetComponents<T>() => default; public T GetComponentInChildren<T>() => default; public T[] GetComponentsInChildren<T>() => default; }
+            public class Behaviour : Component { public bool enabled { get; set; } }
+            public class MonoBehaviour : Behaviour {}
+            public class GameObject : Object { public Transform transform => null; public string tag { get; set; } public T GetComponent<T>() => default; public T[] GetComponents<T>() => default; public T GetComponentInChildren<T>() => default; public T[] GetComponentsInChildren<T>() => default; public static GameObject Find(string n) => null; public static GameObject FindWithTag(string t) => null; public static GameObject[] FindGameObjectsWithTag(string t) => null; public static T FindObjectOfType<T>() where T : class => null; public static T[] FindObjectsOfType<T>() where T : class => null; }
+            public class Transform : Component { public Vector3 position { get; set; } public Quaternion rotation { get; set; } public Quaternion localRotation { get; set; } public Vector3 eulerAngles { get; set; } public Vector3 forward => default; public Transform parent => null; public int childCount => 0; public Transform GetChild(int i) => null; public Transform Find(string n) => null; }
+            public struct Vector3 { public float x, y, z; public Vector3(float x, float y, float z) { this.x=x; this.y=y; this.z=z; } public static Vector3 up => default; public static Vector3 Lerp(Vector3 a, Vector3 b, float t) => default; public static Vector3 SmoothDamp(Vector3 c, Vector3 t, ref Vector3 v, float s) => default; public static float Distance(Vector3 a, Vector3 b) => 0; }
+            public struct Vector2 { public float x, y; }
+            public struct Quaternion { public static Quaternion Euler(float x, float y, float z) => default; public static Quaternion Slerp(Quaternion a, Quaternion b, float t) => default; public static Quaternion operator*(Quaternion a, Quaternion b) => default; }
+            public class Camera : Behaviour { public static Camera main => null; public float fieldOfView { get; set; } public float nearClipPlane { get; set; } }
+            public class Renderer : Component { public bool enabled { get; set; } public UnityEngine.Rendering.ShadowCastingMode shadowCastingMode { get; set; } }
+            public struct Color { public Color(float r, float g, float b, float a) {} }
+            public static class Input { public static bool GetKeyDown(KeyCode k) => false; public static float GetAxis(string a) => 0; }
+            public enum KeyCode { None=0, F5=286, V=118 }
+            public static class Cursor { public static bool visible { get; set; } public static CursorLockMode lockState { get; set; } }
+            public enum CursorLockMode { None=0, Locked=1, Confined=2 }
+            public static class Time { public static float deltaTime => 0; public static float timeScale { get; set; } }
+            public static class Mathf { public static float Sqrt(float v) => 0; public static float Clamp(float v, float a, float b) => 0; public static float Lerp(float a, float b, float t) => 0; public static float DeltaAngle(float a, float b) => 0; public static float Max(float a, float b) => 0; public static float Abs(float v) => 0; }
+            public static class Debug { public static void Log(object m) {} }
+            namespace Rendering { public enum ShadowCastingMode { Off=0, On=1, TwoSided=2, ShadowsOnly=3 } }
+          }'
+
+          generate_stub "UnityEngine" "$INTEROP_DIR" '
+          [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("AskaFirstPerson")]'
+
+          generate_stub "UnityEngine.AnimationModule" "$INTEROP_DIR" '
+          namespace UnityEngine { public class Animator : UnityEngine.Behaviour { public bool isHuman => false; public Transform GetBoneTransform(HumanBodyBones b) => null; } public enum HumanBodyBones { Hips=0, Spine=7, Head=10, Neck=9, UpperChest=54 } }'
+
+          generate_stub "UnityEngine.InputLegacyModule" "$INTEROP_DIR" '
+          [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("AskaFirstPerson")]'
+
+          generate_stub "UnityEngine.PhysicsModule" "$INTEROP_DIR" '
+          namespace UnityEngine { public class Rigidbody : UnityEngine.Component {} public class Collider : UnityEngine.Component {} }'
+
+          generate_stub "Assembly-CSharp" "$INTEROP_DIR" '
+          [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("AskaFirstPerson")]'
+
+          generate_stub "Cinemachine" "$INTEROP_DIR" '
+          namespace Cinemachine { public class CinemachineBrain : UnityEngine.Behaviour { public void LateUpdate() {} } }'
+
+          generate_stub "Unity.InputSystem" "$INTEROP_DIR" '
+          namespace UnityEngine.InputSystem {
+            public class Gamepad : InputDevice { public static Gamepad current => null; public StickControl rightStick => null; public ButtonControl leftStickButton => null; public ButtonControl rightStickButton => null; }
+            public class InputDevice {}
+            public class StickControl { public UnityEngine.Vector2 ReadValue() => default; }
+            public class ButtonControl { public bool wasPressedThisFrame => false; }
+          }'
+
+          generate_stub "Fusion.Runtime" "$INTEROP_DIR" '
+          namespace Fusion { public class NetworkObject : UnityEngine.Behaviour { public bool HasInputAuthority => false; } }'
+
+          echo "--- Stubs generated ---"
+          ls -la "$CORE_DIR" "$INTEROP_DIR"
+
+          # Build the plugin
           dotnet build AskaFirstPerson.csproj \
             -c Release \
             -p:R2ModManDir="$STUB_DIR" \
             -nowarn:CS8021
 
-          # Verify output
           DLL="bin/Release/net6.0/AskaFirstPerson.dll"
           if [ ! -f "$DLL" ]; then
             echo "::error::Build produced no output at $DLL"
@@ -92,7 +173,7 @@ jobs:
           if [ -f thunderstore/icon.png ]; then
             cp thunderstore/icon.png "$PKG/"
           else
-            echo "::warning::thunderstore/icon.png not found -- Thunderstore requires a 256x256 PNG icon. Add one before uploading."
+            echo "::warning::thunderstore/icon.png not found -- Thunderstore requires a 256x256 PNG icon."
           fi
 
           cd "$PKG"

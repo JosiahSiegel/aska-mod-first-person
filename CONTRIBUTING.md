@@ -70,8 +70,7 @@ aska-first-person/
     icon.png
   .github/workflows/
     release.yml              # CI: builds, packages, and creates GitHub releases
-  NEXUS_README.md            # Nexus Mods description
-  CONTRIBUTING.md            # This file
+  CONTRIBUTING.md            # This file (you are here)
 ```
 
 ## Architecture Overview
@@ -175,16 +174,16 @@ To publish a new version:
    ```bash
    ./package.sh
    ```
-   This produces `dist/AskaFirstPerson.dll` and `dist/AskaFirstPerson-X.Y.Z.zip`.
+   This produces `dist/AskaFirstPerson-X.Y.Z.zip`.
 3. Commit and tag:
    ```bash
    git commit -am "Bump version to X.Y.Z"
    git tag vX.Y.Z
    git push origin main --tags
    ```
-4. A GitHub Release is auto-created by the workflow. Upload both files from `dist/` to it.
+4. A GitHub Release is auto-created by the workflow. Upload the zip from `dist/` to it.
 5. Upload `dist/AskaFirstPerson-X.Y.Z.zip` to [Thunderstore](https://thunderstore.io/c/aska/)
-6. Upload `dist/AskaFirstPerson.dll` to [Nexus Mods](https://www.nexusmods.com/aska/)
+6. Upload `dist/AskaFirstPerson-X.Y.Z.zip` to [Nexus Mods](https://www.nexusmods.com/aska/)
 
 ## License
 

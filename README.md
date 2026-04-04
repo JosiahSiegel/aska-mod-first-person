@@ -16,8 +16,8 @@ A toggleable first-person camera mod for Aska. Look through your character's eye
    - Launch Aska once and close it (BepInEx generates required files on first run)
 
 2. **Install the mod:**
-   - Download `AskaFirstPerson.dll` from the Files tab
-   - Place it in `<Aska folder>/BepInEx/plugins/`
+   - Download the zip from the Files tab
+   - Extract into your Aska game folder (the `BepInEx/plugins/` structure is included)
    - That's it — launch the game
 
 ## How to Use

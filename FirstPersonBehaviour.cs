@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Fusion;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
@@ -95,14 +96,30 @@ public class FirstPersonBehaviour : MonoBehaviour
         // --- Toggle: keyboard ---
         bool togglePressed = Input.GetKeyDown(FirstPersonPlugin.CfgToggleKey.Value);
 
-        // --- Toggle: gamepad right stick click (R3) ---
+        // --- Toggle: gamepad (configurable, default LB + R3) ---
         if (!togglePressed)
         {
             try
             {
                 _gamepad = Gamepad.current;
-                if (_gamepad != null && _gamepad.rightStickButton.wasPressedThisFrame)
-                    togglePressed = true;
+                if (_gamepad != null)
+                {
+                    var toggleBtn = GetGamepadButton(_gamepad, FirstPersonPlugin.CfgGamepadToggleButton.Value);
+                    if (toggleBtn != null && toggleBtn.wasPressedThisFrame)
+                    {
+                        string modName = FirstPersonPlugin.CfgGamepadModifierButton.Value;
+                        if (string.Equals(modName, "None", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            togglePressed = true;
+                        }
+                        else
+                        {
+                            var modBtn = GetGamepadButton(_gamepad, modName);
+                            if (modBtn != null && modBtn.isPressed)
+                                togglePressed = true;
+                        }
+                    }
+                }
             }
             catch { }
         }
@@ -645,6 +662,34 @@ public class FirstPersonBehaviour : MonoBehaviour
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Maps a config string to a gamepad ButtonControl.
+    /// Returns null if the name is unrecognized.
+    /// </summary>
+    private static ButtonControl GetGamepadButton(Gamepad pad, string name)
+    {
+        return name switch
+        {
+            "North" or "ButtonNorth" => pad.buttonNorth,
+            "South" or "ButtonSouth" => pad.buttonSouth,
+            "East" or "ButtonEast" => pad.buttonEast,
+            "West" or "ButtonWest" => pad.buttonWest,
+            "LeftShoulder" or "LeftBumper" => pad.leftShoulder,
+            "RightShoulder" or "RightBumper" => pad.rightShoulder,
+            "LeftTrigger" => pad.leftTrigger,
+            "RightTrigger" => pad.rightTrigger,
+            "LeftStickButton" => pad.leftStickButton,
+            "RightStickButton" => pad.rightStickButton,
+            "Start" or "StartButton" => pad.startButton,
+            "Select" or "SelectButton" => pad.selectButton,
+            "DpadUp" => pad.dpad.up,
+            "DpadDown" => pad.dpad.down,
+            "DpadLeft" => pad.dpad.left,
+            "DpadRight" => pad.dpad.right,
+            _ => null,
+        };
     }
 
     private static string GetHierarchyPath(Transform t)

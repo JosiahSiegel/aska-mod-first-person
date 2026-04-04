@@ -12,7 +12,7 @@ public class FirstPersonPlugin : BasePlugin
 {
     public const string PluginGuid = "com.community.askafirstperson";
     public const string PluginName = "Aska First Person Camera";
-    public const string PluginVersion = "1.0.0";
+    public const string PluginVersion = "1.0.1";
 
     internal static new ManualLogSource Log;
 

@@ -169,12 +169,15 @@ Press **F8** in-game to trigger a dump, then check `LogOutput.log`.
 
 To publish a new version:
 
-1. Update the version in `FirstPersonPlugin.cs` (`PluginVersion`) and `thunderstore/manifest.json` (`version_number`)
-2. Build and package locally:
+1. Update **both** version locations — they must match:
+   - `FirstPersonPlugin.cs` → `PluginVersion`
+   - `thunderstore/manifest.json` → `version_number`
+2. If controls or features changed, also update the `description` in `thunderstore/manifest.json`
+3. Build and package locally:
    ```bash
    ./package.sh
    ```
-   This produces `dist/AskaFirstPerson-X.Y.Z.zip`.
+   The script checks that versions match and prints the manifest description for review. This produces `dist/AskaFirstPerson-X.Y.Z.zip`.
 3. Commit and tag:
    ```bash
    git commit -am "Bump version to X.Y.Z"

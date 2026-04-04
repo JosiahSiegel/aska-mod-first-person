@@ -4,7 +4,7 @@ A BepInEx 6 IL2CPP plugin that adds a fully-featured first-person camera to Aska
 
 ## Features
 
-- **Toggle camera** with **F5** (keyboard) or **R3 / right stick click** (gamepad) -- configurable
+- **Toggle camera** with **F5** (keyboard) or **LB + R3** (gamepad) -- both fully configurable
 - Smooth camera positioning anchored to the player's head bone with configurable offsets
 - **Motion dampening** reduces vertical camera shake from combat, rolls, and head bob without adding lateral lag
 - **Shadow-only body** -- player model is hidden but still casts shadows for immersion
@@ -64,7 +64,9 @@ After first launch, edit `BepInEx/config/com.community.askafirstperson.cfg`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| ToggleKey | F5 | Key to toggle between first-person and third-person. Gamepad R3 (right stick click) always works as an additional toggle |
+| ToggleKey | F5 | Keyboard key to toggle first-person and third-person |
+| GamepadToggleButton | RightStickButton | Gamepad button to toggle first-person mode |
+| GamepadModifierButton | LeftShoulder | Modifier button held with the toggle button (LB + R3 by default). Set to "None" for a bare button press |
 
 ## How It Works
 

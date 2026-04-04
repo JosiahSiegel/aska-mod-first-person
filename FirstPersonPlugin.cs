@@ -32,6 +32,8 @@ public class FirstPersonPlugin : BasePlugin
     public static ConfigEntry<bool> CfgShowBody;
     // Control settings
     public static ConfigEntry<KeyCode> CfgToggleKey;
+    public static ConfigEntry<string> CfgGamepadToggleButton;
+    public static ConfigEntry<string> CfgGamepadModifierButton;
 
     public override void Load()
     {
@@ -81,6 +83,20 @@ public class FirstPersonPlugin : BasePlugin
         CfgToggleKey = Config.Bind("Controls", "ToggleKey", KeyCode.F5,
             "Key to toggle between first-person and third-person camera");
 
+        CfgGamepadToggleButton = Config.Bind("Controls", "GamepadToggleButton", "RightStickButton",
+            "Gamepad button to toggle first-person mode. " +
+            "Valid: North, South, East, West, LeftShoulder, RightShoulder, " +
+            "LeftTrigger, RightTrigger, LeftStickButton, RightStickButton, " +
+            "Start, Select, DpadUp, DpadDown, DpadLeft, DpadRight");
+
+        CfgGamepadModifierButton = Config.Bind("Controls", "GamepadModifierButton", "LeftShoulder",
+            "Modifier button that must be held while pressing the toggle button. " +
+            "Set to \"None\" to disable the modifier (bare button press). " +
+            "Default: LeftShoulder (LB + R3 chord avoids conflicting with game actions). " +
+            "Valid: None, North, South, East, West, LeftShoulder, RightShoulder, " +
+            "LeftTrigger, RightTrigger, LeftStickButton, RightStickButton, " +
+            "Start, Select, DpadUp, DpadDown, DpadLeft, DpadRight");
+
         // Apply Harmony patches (suppresses CinemachineBrain in FP mode)
         var harmony = new Harmony(PluginGuid);
         harmony.PatchAll();
@@ -88,6 +104,11 @@ public class FirstPersonPlugin : BasePlugin
         // Register the MonoBehaviour that drives camera logic each frame
         AddComponent<FirstPersonBehaviour>();
 
-        Log.LogInfo($"{PluginName} v{PluginVersion} loaded — press [{CfgToggleKey.Value}] to toggle");
+        string modKey = CfgGamepadModifierButton.Value;
+        string padToggle = CfgGamepadToggleButton.Value;
+        string padDesc = string.Equals(modKey, "None", System.StringComparison.OrdinalIgnoreCase)
+            ? padToggle
+            : $"{modKey}+{padToggle}";
+        Log.LogInfo($"{PluginName} v{PluginVersion} loaded — press [{CfgToggleKey.Value}] or gamepad [{padDesc}] to toggle");
     }
 }

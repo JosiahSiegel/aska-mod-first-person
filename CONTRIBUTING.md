@@ -70,8 +70,7 @@ aska-first-person/
     icon.png
   .github/workflows/
     release.yml              # CI: builds, packages, and creates GitHub releases
-  NEXUS_README.md            # Nexus Mods description
-  CONTRIBUTING.md            # This file
+  CONTRIBUTING.md            # This file (you are here)
 ```
 
 ## Architecture Overview
@@ -82,7 +81,7 @@ aska-first-person/
 
 2. **`CameraControllerPatch`** is a Harmony prefix on `CinemachineBrain.LateUpdate` that returns `false` (skips the original) when first-person mode is active. This prevents Cinemachine from overriding our camera position.
 
-3. **`FirstPersonBehaviour.Update()`** handles toggle input (keyboard F5 / gamepad R3), mouse look, and gamepad right stick. It gates all input on `IsInGameplay()` and `IsGamePaused()`.
+3. **`FirstPersonBehaviour.Update()`** handles toggle input (keyboard F5 / gamepad LB+R3, both configurable), mouse look, and gamepad right stick. It gates all input on `IsInGameplay()` and `IsGamePaused()`.
 
 4. **`FirstPersonBehaviour.LateUpdate()`** positions the camera at the head bone with motion dampening, applies mouse-driven rotation, rotates spine bones for upper-body aiming, and periodically re-scans for new renderers to hide.
 
@@ -175,16 +174,16 @@ To publish a new version:
    ```bash
    ./package.sh
    ```
-   This produces `dist/AskaFirstPerson.dll` and `dist/AskaFirstPerson-X.Y.Z.zip`.
+   This produces `dist/AskaFirstPerson-X.Y.Z.zip`.
 3. Commit and tag:
    ```bash
    git commit -am "Bump version to X.Y.Z"
    git tag vX.Y.Z
    git push origin main --tags
    ```
-4. A GitHub Release is auto-created by the workflow. Upload both files from `dist/` to it.
+4. A GitHub Release is auto-created by the workflow. Upload the zip from `dist/` to it.
 5. Upload `dist/AskaFirstPerson-X.Y.Z.zip` to [Thunderstore](https://thunderstore.io/c/aska/)
-6. Upload `dist/AskaFirstPerson.dll` to [Nexus Mods](https://www.nexusmods.com/aska/)
+6. Upload `dist/AskaFirstPerson-X.Y.Z.zip` to [Nexus Mods](https://www.nexusmods.com/aska/)
 
 ## License
 

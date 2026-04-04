@@ -31,7 +31,7 @@ jobs:
 
             **Manual:** Download `AskaFirstPerson-${{ steps.version.outputs.version }}.zip`, extract, and copy `BepInEx/plugins/AskaFirstPerson/AskaFirstPerson.dll` to your Aska BepInEx plugins folder.
 
-            **Nexus Mods:** Download `AskaFirstPerson.dll` and place it in `<Aska>/BepInEx/plugins/`.
+            **Nexus Mods:** Download `AskaFirstPerson-${{ steps.version.outputs.version }}.zip`, extract, and place `BepInEx/plugins/AskaFirstPerson/AskaFirstPerson.dll` in your Aska game folder.
 
             > [!NOTE]
             > Requires [BepInEx 6 IL2CPP (BE #755+)](https://builds.bepinex.dev/projects/bepinex_be). Install via r2modman for the easiest setup.

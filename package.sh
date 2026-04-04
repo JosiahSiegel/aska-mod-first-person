@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build and package the mod for distribution.
 # Produces:
-#   dist/AskaFirstPerson.dll           — standalone DLL (for Nexus Mods)
-#   dist/AskaFirstPerson-VERSION.zip   — Thunderstore package (for r2modman)
+#   dist/AskaFirstPerson-VERSION.zip — single zip for Thunderstore, Nexus, and GitHub
+#                                      (contains BepInEx/plugins/ structure + Thunderstore metadata)
 #
 # Usage:
 #   ./package.sh          # uses version from FirstPersonPlugin.cs
@@ -105,10 +105,7 @@ info "Packaging ..."
 rm -rf dist
 mkdir -p dist/thunderstore/BepInEx/plugins/AskaFirstPerson
 
-# --- Standalone DLL (Nexus Mods) ---
-cp "$DLL" dist/AskaFirstPerson.dll
-
-# --- Thunderstore layout ---
+# --- Thunderstore / Nexus / GitHub layout ---
 cp "$DLL" dist/thunderstore/BepInEx/plugins/AskaFirstPerson/
 
 if [[ -f "$MANIFEST_JSON" ]]; then
@@ -136,10 +133,10 @@ ZIP_PATH="dist/${ZIP_NAME}"
 
 create_zip() {
     if command -v zip &>/dev/null; then
-        info "Creating zip with 'zip' ..."
-        (cd dist/thunderstore && zip -r "../${ZIP_NAME}" .)
+        info "Creating ${ZIP_NAME} with 'zip' ..."
+        (cd dist/thunderstore && zip -r "$OLDPWD/$ZIP_PATH" .)
     elif command -v powershell.exe &>/dev/null || command -v powershell &>/dev/null; then
-        info "Creating zip with PowerShell Compress-Archive ..."
+        info "Creating ${ZIP_NAME} with PowerShell Compress-Archive ..."
         local ps
         ps="$(command -v powershell.exe 2>/dev/null || command -v powershell 2>/dev/null)"
         # Convert to Windows-style paths for PowerShell on MSYS2/Git Bash.
@@ -166,7 +163,6 @@ ok "Created $ZIP_PATH"
 # Summary
 # ---------------------------------------------------------------------------
 
-DLL_SIZE="$(wc -c < dist/AskaFirstPerson.dll | tr -d '[:space:]')"
 ZIP_SIZE="$(wc -c < "$ZIP_PATH" | tr -d '[:space:]')"
 
 echo ""
@@ -174,8 +170,7 @@ echo "============================================================"
 ok "Packaging complete for AskaFirstPerson v${VERSION}"
 echo "============================================================"
 echo ""
-echo "  Artifacts:"
-echo "    dist/AskaFirstPerson.dll       ($DLL_SIZE bytes)"
+echo "  Artifact:"
 echo "    dist/${ZIP_NAME}  ($ZIP_SIZE bytes)"
 echo ""
 echo "  Next steps:"
@@ -183,13 +178,13 @@ echo ""
 echo "  1. ${CYAN}GitHub Release${RESET}"
 echo "       git tag v${VERSION}"
 echo "       git push origin v${VERSION}"
-echo "       Upload both files to the GitHub release."
+echo "       Upload ${ZIP_NAME} to the GitHub release."
 echo ""
 echo "  2. ${CYAN}Thunderstore${RESET}"
 echo "       Upload ${ZIP_NAME} at:"
 echo "       https://thunderstore.io/c/aska/create/"
 echo ""
 echo "  3. ${CYAN}Nexus Mods${RESET}"
-echo "       Upload dist/AskaFirstPerson.dll at:"
+echo "       Upload ${ZIP_NAME} at:"
 echo "       https://www.nexusmods.com/aska/mods/"
 echo ""

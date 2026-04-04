@@ -16,15 +16,15 @@ A toggleable first-person camera mod for Aska. Look through your character's eye
    - Launch Aska once and close it (BepInEx generates required files on first run)
 
 2. **Install the mod:**
-   - Download `AskaFirstPerson.dll` from the Files tab
-   - Place it in `<Aska folder>/BepInEx/plugins/`
+   - Download the zip from the Files tab
+   - Extract into your Aska game folder (the `BepInEx/plugins/` structure is included)
    - That's it — launch the game
 
 ## How to Use
 
 | Action | Keyboard | Gamepad |
 |--------|----------|---------|
-| Toggle first/third person | **F5** | **R3** (right stick click) |
+| Toggle first/third person | **F5** | **LB + R3** (configurable) |
 
 Toggle only works while in-game (not on menus or loading screens). The mod auto-disables when returning to the main menu.
 
@@ -61,6 +61,8 @@ You can edit it with any text editor, or press **F1** in-game if you have [BepIn
 | ForwardOffset | 0.12 | Forward offset from head bone (metres) |
 | NearClipPlane | 0.05 | Lower values prevent seeing inside geometry |
 | ToggleKey | F5 | Keyboard toggle key |
+| GamepadToggleButton | RightStickButton | Gamepad button to toggle first-person mode |
+| GamepadModifierButton | LeftShoulder | Modifier held with toggle button. Set to "None" for bare press |
 | ShowLowerBody | false | Experimental: show forearms/hands/legs (may have visual artifacts) |
 
 ## Compatibility

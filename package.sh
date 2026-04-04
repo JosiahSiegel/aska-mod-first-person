@@ -165,6 +165,12 @@ ok "Created $ZIP_PATH"
 
 ZIP_SIZE="$(wc -c < "$ZIP_PATH" | tr -d '[:space:]')"
 
+# Extract manifest description for review.
+MANIFEST_DESC=""
+if [[ -f "$MANIFEST_JSON" ]]; then
+    MANIFEST_DESC="$(sed -n 's/.*"description"\s*:\s*"\([^"]*\)".*/\1/p' "$MANIFEST_JSON" | head -1)"
+fi
+
 echo ""
 echo "============================================================"
 ok "Packaging complete for AskaFirstPerson v${VERSION}"
@@ -173,6 +179,14 @@ echo ""
 echo "  Artifact:"
 echo "    dist/${ZIP_NAME}  ($ZIP_SIZE bytes)"
 echo ""
+if [[ -n "$MANIFEST_DESC" ]]; then
+    echo "  ${CYAN}Thunderstore description:${RESET}"
+    echo "    \"$MANIFEST_DESC\""
+    echo ""
+    echo "  ${YELLOW}Review the description above — update $MANIFEST_JSON if controls or"
+    echo "  features have changed since last release.${RESET}"
+    echo ""
+fi
 echo "  Next steps:"
 echo ""
 echo "  1. ${CYAN}GitHub Release${RESET}"

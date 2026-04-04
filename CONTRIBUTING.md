@@ -81,7 +81,7 @@ aska-first-person/
 
 2. **`CameraControllerPatch`** is a Harmony prefix on `CinemachineBrain.LateUpdate` that returns `false` (skips the original) when first-person mode is active. This prevents Cinemachine from overriding our camera position.
 
-3. **`FirstPersonBehaviour.Update()`** handles toggle input (keyboard F5 / gamepad R3), mouse look, and gamepad right stick. It gates all input on `IsInGameplay()` and `IsGamePaused()`.
+3. **`FirstPersonBehaviour.Update()`** handles toggle input (keyboard F5 / gamepad LB+R3, both configurable), mouse look, and gamepad right stick. It gates all input on `IsInGameplay()` and `IsGamePaused()`.
 
 4. **`FirstPersonBehaviour.LateUpdate()`** positions the camera at the head bone with motion dampening, applies mouse-driven rotation, rotates spine bones for upper-body aiming, and periodically re-scans for new renderers to hide.
 

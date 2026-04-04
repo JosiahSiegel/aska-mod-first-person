@@ -2,7 +2,7 @@
     "name": "AskaFirstPerson",
     "version_number": "1.0.0",
     "website_url": "",
-    "description": "Toggleable first-person camera mod for Aska. Press F5 or gamepad R3 to switch views.",
+    "description": "Toggleable first-person camera mod for Aska. Press F5 or gamepad LB+R3 to switch views.",
     "dependencies": [
         "BepInEx-BepInExPack_IL2CPP-6.0.755"
     ]

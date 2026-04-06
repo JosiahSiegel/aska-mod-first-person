@@ -1,8 +1,11 @@
+using System;
+using System.Collections.Generic;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
+using HarmonyLogger = HarmonyLib.Tools.Logger;
 using UnityEngine;
 
 namespace AskaFirstPerson;
@@ -12,7 +15,7 @@ public class FirstPersonPlugin : BasePlugin
 {
     public const string PluginGuid = "com.community.askafirstperson";
     public const string PluginName = "Aska First Person Camera";
-    public const string PluginVersion = "1.0.1";
+    public const string PluginVersion = "1.0.2";
 
     internal static new ManualLogSource Log;
 
@@ -24,9 +27,6 @@ public class FirstPersonPlugin : BasePlugin
     public static ConfigEntry<float> CfgForwardOffset;
     public static ConfigEntry<float> CfgSmoothSpeed;
     public static ConfigEntry<float> CfgMotionDampening;
-
-    // Player settings
-    public static ConfigEntry<string> CfgHeadBoneName;
 
     // Visibility settings
     public static ConfigEntry<bool> CfgShowBody;
@@ -69,10 +69,6 @@ public class FirstPersonPlugin : BasePlugin
                 "Recommended 0.3-0.5.",
                 new AcceptableValueRange<float>(0f, 1f)));
 
-        // Player — Aska uses 3ds Max Biped skeleton naming
-        CfgHeadBoneName = Config.Bind("Player", "HeadBoneName", "Bip001 Head",
-            "Name of the head bone in the player skeleton hierarchy");
-
         // Visibility
         CfgShowBody = Config.Bind("Visibility", "ShowLowerBody", false,
             "Show lower body (forearms, hands, legs) in first-person. " +
@@ -97,9 +93,46 @@ public class FirstPersonPlugin : BasePlugin
             "LeftTrigger, RightTrigger, LeftStickButton, RightStickButton, " +
             "Start, Select, DpadUp, DpadDown, DpadLeft, DpadRight");
 
-        // Apply Harmony patches (suppresses CinemachineBrain in FP mode)
+        // Apply Harmony patches per-class so a single failed target (e.g. a
+        // method that doesn't exist on this machine's Il2CppInterop assembly)
+        // does not abort the entire plugin load. Harmony.PatchAll() is all-or-
+        // nothing — one broken patch class and nothing else runs.
         var harmony = new Harmony(PluginGuid);
-        harmony.PatchAll();
+        var active = new List<string>();
+
+        // Temporarily drop the HarmonyX Warn channel during patch registration.
+        // Each CreateClassProcessor().Patch() call triggers an internal
+        // AccessTools.GetTypesFromAssembly scan of every loaded assembly;
+        // UnityEngine.CoreModule in the Il2Cpp interop bundle has three types
+        // (DirectChildrenEnumerable, <>c, IdentityAttributes) that fail to
+        // load, producing ~15 lines of stack trace warnings per patch. They
+        // are cosmetic and affect no behavior — but they swamp the log and
+        // hide real warnings. BepInEx defaults HarmonyLogger.ChannelFilter to
+        // Warn | Error; we narrow to Error for the registration loop only
+        // and restore it afterward so real post-load Warn entries still surface.
+        var savedHarmonyChannels = HarmonyLogger.ChannelFilter;
+        HarmonyLogger.ChannelFilter = savedHarmonyChannels & ~HarmonyLogger.LogChannel.Warn;
+        try
+        {
+            // CinemachineBrain suppression — required for first-person to work at
+            // all, but still wrapped so a theoretical failure degrades gracefully.
+            if (TryPatchClass(harmony, typeof(CinemachineBrainPatch)))
+                active.Add("Cinemachine");
+
+            // Input suppression — list lives in InputSuppressionPatch so the
+            // DRY mapping between layer name and patch class stays in one place.
+            foreach (var (layer, type) in InputSuppressionPatch.PatchClasses)
+            {
+                if (TryPatchClass(harmony, type))
+                    active.Add(layer);
+            }
+        }
+        finally
+        {
+            HarmonyLogger.ChannelFilter = savedHarmonyChannels;
+        }
+
+        Log.LogInfo($"Harmony patches active: [{string.Join(", ", active)}]");
 
         // Register the MonoBehaviour that drives camera logic each frame
         AddComponent<FirstPersonBehaviour>();
@@ -110,5 +143,24 @@ public class FirstPersonPlugin : BasePlugin
             ? padToggle
             : $"{modKey}+{padToggle}";
         Log.LogInfo($"{PluginName} v{PluginVersion} loaded — press [{CfgToggleKey.Value}] or gamepad [{padDesc}] to toggle");
+    }
+
+    /// <summary>
+    /// Registers a single Harmony patch class, swallowing (and logging) any
+    /// exception so other patch classes can still apply. Returns true if the
+    /// class was patched successfully.
+    /// </summary>
+    private static bool TryPatchClass(Harmony harmony, Type type)
+    {
+        try
+        {
+            harmony.CreateClassProcessor(type).Patch();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning($"Skipping Harmony patch {type.Name}: {ex.Message}");
+            return false;
+        }
     }
 }

@@ -1,8 +1,10 @@
+using System;
 using System.Collections.Generic;
 using Fusion;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
+using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
@@ -27,9 +29,18 @@ namespace AskaFirstPerson;
 public class FirstPersonBehaviour : MonoBehaviour
 {
     // ------------------------------------------------------------------
-    //  Public state — read by CameraControllerPatch
+    //  Public state — read by CameraControllerPatch and InputSuppressionPatch
     // ------------------------------------------------------------------
     public static bool IsFirstPerson;
+
+    // Set every frame from Update() to drive the InputSuppressionPatch
+    // postfix that hides the chord toggle button from the game while the
+    // modifier is held. String-name comparison is used because Il2CppInterop
+    // does not guarantee stable managed wrapper identity for native controls,
+    // so reference equality fails intermittently.
+    internal static string SuppressedToggleButtonName;   // e.g. "rightStickPress"
+    internal static bool ChordModifierIsHeld;
+    internal static bool InSelfRead; // reentrancy guard for our own button reads
 
     // ------------------------------------------------------------------
     //  Cached references
@@ -37,9 +48,8 @@ public class FirstPersonBehaviour : MonoBehaviour
     private Camera _cam;
     private Transform _headBone;
     private Transform _playerRoot;
-    private Transform _geometryParent;
-    private Transform _ragnarRoot;
-    private Transform _skeletonRoot; // ragnarRoot/master — the MAIN skeleton (not equipment sub-skeletons)
+    private Transform _characterRoot;  // GeometryParent/<character> (e.g. ragnar, aska)
+    private Transform _skeletonRoot;   // _characterRoot/master — main skeleton, NOT equipment sub-skeletons
     private Transform _leftHand;
     private Transform _rightHand;
 
@@ -72,6 +82,8 @@ public class FirstPersonBehaviour : MonoBehaviour
     //  Renderers set to shadow-only (body meshes that still cast shadows)
     // ------------------------------------------------------------------
     private readonly List<Renderer> _shadowOnlyRenderers = new();
+    private float _rendererScanTimer;
+    private const float RendererScanInterval = 0.5f;
 
     // ==================================================================
     //  Unity callbacks
@@ -93,87 +105,138 @@ public class FirstPersonBehaviour : MonoBehaviour
             return;
         }
 
-        // --- Toggle: keyboard ---
-        bool togglePressed = Input.GetKeyDown(FirstPersonPlugin.CfgToggleKey.Value);
+        // Fetch gamepad once. Try/catch is load-bearing under Il2CppInterop —
+        // Gamepad.current can throw during scene transitions.
+        try { _gamepad = Gamepad.current; }
+        catch { _gamepad = null; }
 
-        // --- Toggle: gamepad (configurable, default LB + R3) ---
-        if (!togglePressed)
-        {
-            try
-            {
-                _gamepad = Gamepad.current;
-                if (_gamepad != null)
-                {
-                    var toggleBtn = GetGamepadButton(_gamepad, FirstPersonPlugin.CfgGamepadToggleButton.Value);
-                    if (toggleBtn != null && toggleBtn.wasPressedThisFrame)
-                    {
-                        string modName = FirstPersonPlugin.CfgGamepadModifierButton.Value;
-                        if (string.Equals(modName, "None", System.StringComparison.OrdinalIgnoreCase))
-                        {
-                            togglePressed = true;
-                        }
-                        else
-                        {
-                            var modBtn = GetGamepadButton(_gamepad, modName);
-                            if (modBtn != null && modBtn.isPressed)
-                                togglePressed = true;
-                        }
-                    }
-                }
-            }
-            catch { }
-        }
+        // --- Toggle detection ---
+        bool togglePressed = Input.GetKeyDown(FirstPersonPlugin.CfgToggleKey.Value)
+                             || TryReadGamepadToggle();
 
         if (togglePressed)
         {
             IsFirstPerson = !IsFirstPerson;
-
-            if (IsFirstPerson)
-                EnableFirstPerson();
-            else
-                DisableFirstPerson();
-
+            if (IsFirstPerson) EnableFirstPerson();
+            else DisableFirstPerson();
             FirstPersonPlugin.Log.LogInfo($"First-person mode: {(IsFirstPerson ? "ON" : "OFF")}");
         }
 
         if (!IsFirstPerson || _cam == null)
             return;
 
-        // Don't process camera input when the game is paused or a
-        // menu is open. Check multiple signals since different games
-        // use different pause mechanisms.
+        // Don't process camera input when the game is paused or a menu is open.
         if (IsGamePaused())
             return;
 
-        // --- Mouse input (legacy Input) ---
+        // --- Mouse look (legacy Input) ---
         float sens = FirstPersonPlugin.CfgSensitivity.Value;
         _yaw += Input.GetAxis("Mouse X") * sens;
         _pitch -= Input.GetAxis("Mouse Y") * sens;
 
         // --- Gamepad right stick (new Input System) ---
-        try
+        // Separate try/catch from the fetch above: a successful Gamepad.current
+        // does not guarantee subsequent property reads can't throw under interop.
+        if (_gamepad != null)
         {
-            if (_gamepad == null)
-                _gamepad = Gamepad.current;
-            if (_gamepad != null)
+            try
             {
                 Vector2 stick = _gamepad.rightStick.ReadValue();
                 float gpSens = sens * 3f; // Gamepad needs higher multiplier
                 _yaw += stick.x * gpSens * Time.deltaTime * 60f;
                 _pitch -= stick.y * gpSens * Time.deltaTime * 60f;
             }
+            catch { }
         }
-        catch { }
 
         _pitch = Mathf.Clamp(_pitch, -85f, 85f);
     }
 
-    // Timer for periodic renderer re-scan (catches newly picked up items)
-    private float _rendererScanTimer;
-    private const float RendererScanInterval = 0.5f;
+    /// <summary>
+    /// Republishes the suppression state read by InputSuppressionPatch every
+    /// frame and reports whether the gamepad chord toggled this frame.
+    /// InSelfRead bypasses the patch so chord detection sees the real button.
+    ///
+    /// Also performs device-state clamping: while the modifier is held, we
+    /// forcibly write 0 to the toggle button's device state via
+    /// InputState.Change. This catches InputAction.performed callbacks that
+    /// read state from the device buffer rather than through property getters.
+    /// Clamping runs every frame the modifier is held; the first frame of a
+    /// press may still leak through (event-queue race), but subsequent frames
+    /// are clean and any is-pressed polling by game code sees 0.
+    ///
+    /// Outer try/catch is load-bearing under Il2CppInterop.
+    /// </summary>
+    private bool TryReadGamepadToggle()
+    {
+        if (_gamepad == null)
+        {
+            ResetSuppressionState();
+            return false;
+        }
 
-    // Diagnostic timer
-    private float _diagTimer;
+        try
+        {
+            InSelfRead = true;
+            try
+            {
+                string toggleName = FirstPersonPlugin.CfgGamepadToggleButton.Value;
+                var toggleBtn = GetGamepadButton(_gamepad, toggleName);
+                string modName = FirstPersonPlugin.CfgGamepadModifierButton.Value;
+                bool noModifier = string.Equals(modName, "None", StringComparison.OrdinalIgnoreCase);
+                bool modHeld = false;
+                if (!noModifier)
+                {
+                    var modBtn = GetGamepadButton(_gamepad, modName);
+                    modHeld = modBtn != null && modBtn.isPressed;
+                }
+
+                bool wasHeld = ChordModifierIsHeld;
+
+                // Publish suppression state for the patch postfix.
+                // Control name is what the Harmony postfix compares against
+                // (not the managed wrapper reference — it's unstable under interop).
+                SuppressedToggleButtonName = (noModifier || toggleBtn == null)
+                    ? null
+                    : toggleBtn.name;
+                ChordModifierIsHeld = modHeld;
+
+                // Reset the per-hold logging latch when the modifier
+                // transitions state, so the next press re-emits the
+                // diagnostic line.
+                if (wasHeld != modHeld)
+                    InputSuppressionPatch.LoggedMagnitudeThisHold = false;
+
+                // Clamp device state to 0 every frame the modifier is
+                // held. The very first frame of an R3 press may still
+                // reach the game (it was queued before we clamped), but
+                // from frame 2 onward the state is 0 and any action-callback
+                // path that reads from device state sees "not pressed".
+                if (modHeld && toggleBtn != null)
+                {
+                    try { InputState.Change(toggleBtn, 0f); }
+                    catch { }
+                }
+
+                return toggleBtn != null
+                       && toggleBtn.wasPressedThisFrame
+                       && (noModifier || modHeld);
+            }
+            finally { InSelfRead = false; }
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Clears all suppression-state fields. Called on gamepad loss,
+    /// scene exit, and reference reset.
+    /// </summary>
+    private static void ResetSuppressionState()
+    {
+        SuppressedToggleButtonName = null;
+        ChordModifierIsHeld = false;
+        InputSuppressionPatch.LoggedMagnitudeThisHold = false;
+    }
 
     private void LateUpdate()
     {
@@ -261,25 +324,7 @@ public class FirstPersonBehaviour : MonoBehaviour
         if (_rendererScanTimer >= RendererScanInterval)
         {
             _rendererScanTimer = 0f;
-            HideNewRenderers();
-        }
-
-        // Diagnostic logging every 2 seconds (helps debug camera issues)
-        _diagTimer += Time.deltaTime;
-        if (_diagTimer >= 2f)
-        {
-            _diagTimer = 0f;
-            float rootY = _playerRoot != null ? _playerRoot.position.y : -999f;
-            float headY = _headBone != null ? _headBone.position.y : -999f;
-            float camY = _cam.transform.position.y;
-            string headPath = _headBone != null ? GetHierarchyPath(_headBone) : "NULL";
-            string playerName = _playerRoot != null ? _playerRoot.name : "NULL";
-            FirstPersonPlugin.Log.LogInfo(
-                $"[Diag] player={playerName} rootY={rootY:F2} headY={headY:F2} " +
-                $"headHeight={headY - rootY:F2} camY={camY:F2} " +
-                $"headBone={headPath} " +
-                $"spine={(_spine != null ? _spine.name : "NULL")} " +
-                $"timeScale={Time.timeScale:F2}");
+            HidePlayerRenderers(rebuildCache: false);
         }
     }
 
@@ -327,7 +372,7 @@ public class FirstPersonBehaviour : MonoBehaviour
                 $"Player={_playerRoot.name}");
         }
 
-        HidePlayerModel();
+        HidePlayerRenderers(rebuildCache: true);
     }
 
     private void DisableFirstPerson()
@@ -356,34 +401,33 @@ public class FirstPersonBehaviour : MonoBehaviour
         if (_playerRoot == null)
         {
             GameObject localPlayer = FindLocalPlayer();
-            if (localPlayer != null)
-            {
-                _playerRoot = localPlayer.transform;
-                _geometryParent = _playerRoot.Find("GeometryParent");
+            if (localPlayer == null)
+                return;
 
-                // Find the character geometry root (ragnar, aska, freya, etc.)
-                // It's the child of GeometryParent that contains a "master"
-                // skeleton transform — works for any character model.
-                if (_geometryParent != null)
+            _playerRoot = localPlayer.transform;
+
+            // Find the character geometry root (ragnar, aska, freya, etc.)
+            // It's the child of GeometryParent that contains a "master"
+            // skeleton transform — works for any character model.
+            var geometryParent = _playerRoot.Find("GeometryParent");
+            if (geometryParent != null)
+            {
+                for (int i = 0; i < geometryParent.childCount; i++)
                 {
-                    for (int i = 0; i < _geometryParent.childCount; i++)
+                    var child = geometryParent.GetChild(i);
+                    var master = child.Find("master");
+                    if (master != null)
                     {
-                        var child = _geometryParent.GetChild(i);
-                        var master = child.Find("master");
-                        if (master != null)
-                        {
-                            _ragnarRoot = child;
-                            _skeletonRoot = master;
-                            FirstPersonPlugin.Log.LogInfo(
-                                $"Character geometry root: {child.name}, skeleton: {master.name}");
-                            break;
-                        }
+                        _characterRoot = child;
+                        _skeletonRoot = master;
+                        FirstPersonPlugin.Log.LogInfo(
+                            $"Character geometry root: {child.name}, skeleton: {master.name}");
+                        break;
                     }
                 }
-
-                FirstPersonPlugin.Log.LogInfo(
-                    $"Local player: {localPlayer.name}");
             }
+
+            FirstPersonPlugin.Log.LogInfo($"Local player: {localPlayer.name}");
         }
 
         // All bone lookups use EXPLICIT PATHS from _skeletonRoot (master)
@@ -402,7 +446,7 @@ public class FirstPersonBehaviour : MonoBehaviour
                     bipedBase + "/Bip001 Spine1/Bip001 Neck/Bip001 Head");
 
                 if (_headBone != null)
-                    FirstPersonPlugin.Log.LogInfo($"Head bone resolved: {GetHierarchyPath(_headBone)}");
+                    FirstPersonPlugin.Log.LogInfo($"Head bone resolved: {_headBone.name}");
                 else
                     FirstPersonPlugin.Log.LogWarning(
                         "Could not find head bone via explicit path. " +
@@ -455,12 +499,9 @@ public class FirstPersonBehaviour : MonoBehaviour
 
     private static bool IsLowerBody(string name)
     {
-        string lower = name.ToLowerInvariant();
         foreach (string prefix in LowerBodyPrefixes)
-        {
-            if (lower.StartsWith(prefix))
+            if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 return true;
-        }
         return false;
     }
 
@@ -479,78 +520,47 @@ public class FirstPersonBehaviour : MonoBehaviour
         return false;
     }
 
-    private void SetRendererShadowOnly(Renderer renderer)
+    /// <summary>
+    /// Walks every renderer under the player and sets it to ShadowsOnly,
+    /// except for held items (descendants of Bip001 L/R Hand) and — when the
+    /// experimental ShowLowerBody flag is on — lower-body meshes parented
+    /// directly under the character root.
+    ///
+    /// rebuildCache=true: initial hide on FP enable. Clears the restore list,
+    /// processes all renderers, logs the count.
+    /// rebuildCache=false: periodic re-scan. Catches newly equipped items
+    /// without disturbing the existing restore list.
+    /// </summary>
+    private void HidePlayerRenderers(bool rebuildCache)
     {
-        if (renderer != null && renderer.enabled &&
-            renderer.shadowCastingMode != ShadowCastingMode.ShadowsOnly)
+        if (_playerRoot == null) return;
+        if (rebuildCache) _shadowOnlyRenderers.Clear();
+
+        bool showBody = FirstPersonPlugin.CfgShowBody.Value;
+        foreach (var renderer in _playerRoot.GetComponentsInChildren<Renderer>())
         {
+            if (renderer == null || !renderer.enabled) continue;
+            if (renderer.shadowCastingMode == ShadowCastingMode.ShadowsOnly) continue;
+
+            // Keep hand-held items visible (weapons, tools, shields).
+            if (IsChildOf(renderer.transform, _leftHand) ||
+                IsChildOf(renderer.transform, _rightHand))
+                continue;
+
+            // Experimental: keep lower-body meshes visible.
+            if (showBody && _characterRoot != null &&
+                renderer.transform.parent == _characterRoot &&
+                IsLowerBody(renderer.gameObject.name))
+                continue;
+
             renderer.shadowCastingMode = ShadowCastingMode.ShadowsOnly;
             _shadowOnlyRenderers.Add(renderer);
         }
-    }
 
-    private void HidePlayerModel()
-    {
-        if (_playerRoot == null) return;
-
-        _shadowOnlyRenderers.Clear();
-        bool showBody = FirstPersonPlugin.CfgShowBody.Value;
-
-        // Get ALL renderers on the entire player hierarchy
-        foreach (var renderer in _playerRoot.GetComponentsInChildren<Renderer>())
-        {
-            if (renderer == null || !renderer.enabled) continue;
-
-            // Always keep hand-held items visible (weapons, tools, shields)
-            if (IsChildOf(renderer.transform, _leftHand) ||
-                IsChildOf(renderer.transform, _rightHand))
-                continue;
-
-            // In experimental mode, also keep lower body meshes visible
-            if (showBody && _ragnarRoot != null &&
-                renderer.transform.parent == _ragnarRoot &&
-                IsLowerBody(renderer.gameObject.name))
-                continue;
-
-            SetRendererShadowOnly(renderer);
-        }
-
-        FirstPersonPlugin.Log.LogInfo(
-            $"Set {_shadowOnlyRenderers.Count} renderers to shadow-only " +
-            "(body + equipment + accessories; hands kept visible)");
-    }
-
-    /// <summary>
-    /// Catches renderers that appeared after the initial hide (items
-    /// picked up, equipment changed, etc.) and sets them to shadow-only.
-    /// Runs periodically from LateUpdate, not every frame.
-    /// </summary>
-    private void HideNewRenderers()
-    {
-        if (_playerRoot == null) return;
-        bool showBody = FirstPersonPlugin.CfgShowBody.Value;
-
-        foreach (var renderer in _playerRoot.GetComponentsInChildren<Renderer>())
-        {
-            if (renderer == null || !renderer.enabled) continue;
-
-            // Already hidden
-            if (renderer.shadowCastingMode == ShadowCastingMode.ShadowsOnly)
-                continue;
-
-            // Keep hand-held items visible
-            if (IsChildOf(renderer.transform, _leftHand) ||
-                IsChildOf(renderer.transform, _rightHand))
-                continue;
-
-            // In experimental mode, keep lower body visible
-            if (showBody && _ragnarRoot != null &&
-                renderer.transform.parent == _ragnarRoot &&
-                IsLowerBody(renderer.gameObject.name))
-                continue;
-
-            SetRendererShadowOnly(renderer);
-        }
+        if (rebuildCache)
+            FirstPersonPlugin.Log.LogInfo(
+                $"Set {_shadowOnlyRenderers.Count} renderers to shadow-only " +
+                "(body + equipment + accessories; hands kept visible)");
     }
 
     private void ShowPlayerModel()
@@ -560,7 +570,6 @@ public class FirstPersonBehaviour : MonoBehaviour
             if (renderer != null)
                 renderer.shadowCastingMode = ShadowCastingMode.On;
         }
-
         _shadowOnlyRenderers.Clear();
     }
 
@@ -638,13 +647,16 @@ public class FirstPersonBehaviour : MonoBehaviour
         _cam = null;
         _headBone = null;
         _playerRoot = null;
-        _geometryParent = null;
-        _ragnarRoot = null;
+        _characterRoot = null;
         _skeletonRoot = null;
         _leftHand = null;
         _rightHand = null;
         _spine = null;
         _spine1 = null;
+
+        // Drop input suppression so the patch postfixes do nothing
+        // until the next gameplay session re-publishes the state.
+        ResetSuppressionState();
     }
 
     /// <summary>
@@ -692,17 +704,4 @@ public class FirstPersonBehaviour : MonoBehaviour
         };
     }
 
-    private static string GetHierarchyPath(Transform t)
-    {
-        string path = t.name;
-        Transform current = t;
-
-        while (current.parent != null)
-        {
-            current = current.parent;
-            path = current.name + "/" + path;
-        }
-
-        return path;
-    }
 }

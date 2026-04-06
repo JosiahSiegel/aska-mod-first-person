@@ -12,9 +12,10 @@
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
   </PropertyGroup>
 
-  <!-- Exclude Discovery dev tool from this project's compilation -->
+  <!-- Exclude dev-only tools from this project's compilation -->
   <ItemGroup>
     <Compile Remove="Discovery\**" />
+    <Compile Remove=".tools\**" />
   </ItemGroup>
 
   <PropertyGroup>

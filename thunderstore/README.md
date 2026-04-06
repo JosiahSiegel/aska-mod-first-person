@@ -48,12 +48,6 @@ After first launch, edit `BepInEx/config/com.community.askafirstperson.cfg`:
 | SmoothSpeed | 15 | 1 -- 100 | Position smoothing factor (higher = less smoothing) |
 | MotionDampening | 0.4 | 0 -- 1 | Reduces vertical camera shake from combat and head bob. 0 = raw tracking, 1 = maximum dampening. Recommended 0.3 -- 0.5 |
 
-### Player
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| HeadBoneName | Bip001 Head | Name of the head bone in the player skeleton (Aska uses 3ds Max Biped naming) |
-
 ### Visibility
 
 | Setting | Default | Description |
@@ -67,6 +61,8 @@ After first launch, edit `BepInEx/config/com.community.askafirstperson.cfg`:
 | ToggleKey | F5 | Keyboard key to toggle first-person and third-person |
 | GamepadToggleButton | RightStickButton | Gamepad button to toggle first-person mode |
 | GamepadModifierButton | LeftShoulder | Modifier button held with the toggle button (LB + R3 by default). Set to "None" for a bare button press |
+
+**Gamepad chord ordering:** hold the modifier (LB) **first**, then tap the toggle (R3). The mod suppresses the underlying R3 action while LB is held so it does not fire alongside the toggle. Pressing R3 first then LB will fire R3's normal game action.
 
 ## How It Works
 

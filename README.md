@@ -28,6 +28,8 @@ A toggleable first-person camera mod for Aska. Look through your character's eye
 
 Toggle only works while in-game (not on menus or loading screens). The mod auto-disables when returning to the main menu.
 
+**Gamepad chord ordering:** hold the modifier (LB) **first**, then tap the toggle (R3). The mod suppresses the underlying R3 action while LB is held so it doesn't fire alongside the toggle. Pressing R3 first then LB will fire R3's normal game action.
+
 ## Features
 
 - Smooth camera anchored to the player's head bone with configurable offsets

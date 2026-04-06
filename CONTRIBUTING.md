@@ -61,9 +61,12 @@ aska-first-person/
   FirstPersonPlugin.cs       # BepInEx BasePlugin entry point, config bindings
   FirstPersonBehaviour.cs    # MonoBehaviour: camera, input, visibility, spine rotation
   CameraControllerPatch.cs   # Harmony patch on CinemachineBrain.LateUpdate
+  InputSuppressionPatch.cs   # Harmony patch on InputControl.EvaluateMagnitude (chord suppression)
   Discovery/                 # Dev-only scene inspection plugin (not part of the release)
     AskaDiscovery.csproj
     DiscoveryPlugin.cs
+  .tools/                    # Dev-only scratch tools (gitignored, excluded from csproj)
+    dllscan/                 # Metadata scanner for verifying method targets before patching
   thunderstore/              # Thunderstore package files
     manifest.json
     README.md
@@ -77,13 +80,15 @@ aska-first-person/
 
 ### How the mod works
 
-1. **`FirstPersonPlugin.Load()`** registers config entries, applies Harmony patches, and adds `FirstPersonBehaviour` to a persistent GameObject.
+1. **`FirstPersonPlugin.Load()`** registers config entries, applies Harmony patches via a tolerant per-class `TryPatchClass()` helper (one failed target no longer kills the plugin), and adds `FirstPersonBehaviour` to a persistent GameObject.
 
 2. **`CameraControllerPatch`** is a Harmony prefix on `CinemachineBrain.LateUpdate` that returns `false` (skips the original) when first-person mode is active. This prevents Cinemachine from overriding our camera position.
 
-3. **`FirstPersonBehaviour.Update()`** handles toggle input (keyboard F5 / gamepad LB+R3, both configurable), mouse look, and gamepad right stick. It gates all input on `IsInGameplay()` and `IsGamePaused()`.
+3. **`InputSuppressionPatch`** is a Harmony postfix on `UnityEngine.InputSystem.InputControl.EvaluateMagnitude` that returns `0` while the chord modifier is held and the instance name matches the configured toggle button. This stops the underlying game action from firing alongside the chord toggle.
 
-4. **`FirstPersonBehaviour.LateUpdate()`** positions the camera at the head bone with motion dampening, applies mouse-driven rotation, rotates spine bones for upper-body aiming, and periodically re-scans for new renderers to hide.
+4. **`FirstPersonBehaviour.Update()`** handles toggle input (keyboard F5 / gamepad LB+R3, both configurable), mouse look, and gamepad right stick. It gates all input on `IsInGameplay()` and `IsGamePaused()`, and republishes chord-suppression state (`SuppressedToggleButtonName`, `ChordModifierIsHeld`) every frame.
+
+5. **`FirstPersonBehaviour.LateUpdate()`** positions the camera at the head bone with motion dampening, applies mouse-driven rotation, rotates spine bones for upper-body aiming, and periodically re-scans for new renderers to hide.
 
 ### Key design decisions
 
@@ -117,9 +122,21 @@ Press **F8** in-game to trigger a dump, then check `LogOutput.log`.
 
 ### Debugging tips
 
-- **Diagnostic logging** is built into the mod — look for `[Diag]` and `[Diagnostics]` lines in `LogOutput.log` while first-person mode is active.
+- **Diagnostic logging** is built into the mod — look for `[Diagnostics]` lines in `LogOutput.log` (one is emitted each time first-person mode turns on).
+- **Suppression logging** — `[Suppress.Magnitude]` lines confirm the chord input patch is firing. One line per chord press; absence means the patch is not catching the game's input path.
 - **Delete the config file** (`BepInEx/config/com.community.askafirstperson.cfg`) to reset all settings to defaults.
 - **Delete `BepInEx/interop/`** after game updates — BepInEx regenerates interop assemblies on next launch.
+
+### Verifying Harmony patch targets (`.tools/dllscan`)
+
+Before targeting a new method with `[HarmonyPatch("Some.Type", "SomeMethod")]`, confirm the method actually exists on the interop assembly on your machine — IL2CPP interop stubs can differ per Unity version, and a missing method silently aborts the whole patch class at `PatchAll` time. The `.tools/dllscan/` project is a small `System.Reflection.Metadata` scanner for this. It is gitignored and excluded from the main csproj.
+
+```bash
+cd .tools/dllscan
+dotnet run -- "$APPDATA/r2modmanPlus-local/ASKA/profiles/Default/BepInEx/interop/Unity.InputSystem.dll" InputControl
+```
+
+The second argument is a case-insensitive substring filter on type names. Methods are printed with their parameter counts so you can disambiguate overloads.
 
 ## How to Contribute
 
@@ -178,15 +195,15 @@ To publish a new version:
    ./package.sh
    ```
    The script checks that versions match and prints the manifest description for review. This produces `dist/AskaFirstPerson-X.Y.Z.zip`.
-3. Commit and tag:
+4. Commit and tag:
    ```bash
    git commit -am "Bump version to X.Y.Z"
    git tag vX.Y.Z
    git push origin main --tags
    ```
-4. A GitHub Release is auto-created by the workflow. Upload the zip from `dist/` to it.
-5. Upload `dist/AskaFirstPerson-X.Y.Z.zip` to [Thunderstore](https://thunderstore.io/c/aska/)
-6. Upload `dist/AskaFirstPerson-X.Y.Z.zip` to [Nexus Mods](https://www.nexusmods.com/aska/)
+5. A GitHub Release is auto-created by the workflow. Upload the zip from `dist/` to it.
+6. Upload `dist/AskaFirstPerson-X.Y.Z.zip` to [Thunderstore](https://thunderstore.io/c/aska/)
+7. Upload `dist/AskaFirstPerson-X.Y.Z.zip` to [Nexus Mods](https://www.nexusmods.com/aska/)
 
 ## License
 

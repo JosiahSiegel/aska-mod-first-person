@@ -19,5 +19,5 @@ Desktop.ini
 Discovery/bin/
 Discovery/obj/
 
-# Agent guidance (dev notes, not part of the mod)
-agent-guidance.md
+# Developer scratch tools (DLL scanners, etc)
+.tools/

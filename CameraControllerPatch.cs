@@ -1,4 +1,3 @@
-using System;
 using HarmonyLib;
 
 namespace AskaFirstPerson;
@@ -14,19 +13,8 @@ namespace AskaFirstPerson;
 [HarmonyPatch("Cinemachine.CinemachineBrain", "LateUpdate")]
 public static class CinemachineBrainPatch
 {
+    // Return false = skip original method (first-person active)
+    // Return true  = let original run (third-person)
     [HarmonyPrefix]
-    public static bool Prefix()
-    {
-        try
-        {
-            // Return false = skip original method (first-person active)
-            // Return true  = let original run (third-person)
-            return !FirstPersonBehaviour.IsFirstPerson;
-        }
-        catch (Exception)
-        {
-            // If anything goes wrong, let the original run
-            return true;
-        }
-    }
+    public static bool Prefix() => !FirstPersonBehaviour.IsFirstPerson;
 }

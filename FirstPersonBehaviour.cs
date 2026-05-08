@@ -149,7 +149,9 @@ public class FirstPersonBehaviour : MonoBehaviour
             catch { }
         }
 
-        _pitch = Mathf.Clamp(_pitch, -85f, 85f);
+        // Clamp away from exactly ±90° to avoid any forward-vector degeneracy
+        // while still letting users look nearly straight down at their feet.
+        _pitch = Mathf.Clamp(_pitch, -89f, 89f);
     }
 
     /// <summary>
@@ -253,6 +255,20 @@ public class FirstPersonBehaviour : MonoBehaviour
         if (IsGamePaused())
             return;
 
+        // Skip the frame if dt is non-positive (first frame after pause/scene
+        // reactivation). SmoothDamp with dt==0 returns NaN, which then propagates
+        // into the camera transform and crashes URP culling/shadow math
+        // downstream — fine to just hold last frame's position.
+        float dt = Time.deltaTime;
+        if (dt <= 0f)
+            return;
+
+        // Head bone may be transiently invalid during equipment swaps; bail
+        // rather than feeding NaN/Inf into the smoothing chain.
+        Vector3 headPos = _headBone.position;
+        if (!IsFinite(headPos))
+            return;
+
         // --- Motion dampening ---
         // The camera tracks the head bone for XZ movement (responsive)
         // but dampens the Y axis to reduce head bob and combat jitter.
@@ -261,16 +277,16 @@ public class FirstPersonBehaviour : MonoBehaviour
         float dampening = FirstPersonPlugin.CfgMotionDampening.Value;
 
         // Horizontal: always follow head bone directly (no lag)
-        float targetX = _headBone.position.x;
-        float targetZ = _headBone.position.z;
+        float targetX = headPos.x;
+        float targetZ = headPos.z;
 
         // Vertical: blend between raw head Y and a smoothed Y
         // This filters out rapid vertical changes (hits, bobs, rolls)
         // while keeping the correct base height.
-        float rawY = _headBone.position.y;
+        float rawY = headPos.y;
         float smoothLerpSpeed = Mathf.Lerp(30f, 6f, dampening);
         _stableBasePos.y = Mathf.Lerp(_stableBasePos.y, rawY,
-            Time.deltaTime * smoothLerpSpeed);
+            dt * smoothLerpSpeed);
         float targetY = Mathf.Lerp(rawY, _stableBasePos.y, dampening);
 
         Vector3 basePos = new Vector3(targetX, targetY, targetZ);
@@ -282,11 +298,23 @@ public class FirstPersonBehaviour : MonoBehaviour
             + forward * FirstPersonPlugin.CfgForwardOffset.Value;
 
         // Final smoothing pass
-        _cam.transform.position = Vector3.SmoothDamp(
+        Vector3 smoothed = Vector3.SmoothDamp(
             _cam.transform.position,
             targetPos,
             ref _smoothVelocity,
             1f / FirstPersonPlugin.CfgSmoothSpeed.Value);
+
+        // Last-line defense: never assign a non-finite position to the camera.
+        // If smoothing ever produces NaN (zero smooth-time, bad velocity), the
+        // native render pipeline can crash on the resulting bounds math.
+        if (IsFinite(smoothed))
+        {
+            _cam.transform.position = smoothed;
+        }
+        else
+        {
+            _smoothVelocity = Vector3.zero;
+        }
 
         // Rotation: purely input-driven, decoupled from animations
         _cam.transform.rotation = Quaternion.Euler(_pitch, _yaw, 0f);
@@ -537,25 +565,51 @@ public class FirstPersonBehaviour : MonoBehaviour
         if (rebuildCache) _shadowOnlyRenderers.Clear();
 
         bool showBody = FirstPersonPlugin.CfgShowBody.Value;
-        foreach (var renderer in _playerRoot.GetComponentsInChildren<Renderer>())
+
+        // Snapshot the renderer list once. Equipment swaps (e.g. picking up
+        // an item while looking down) can destroy renderers between frames;
+        // the per-iteration null checks plus try/catch defend against a
+        // wrapper that points at a freshly-destroyed native object.
+        Renderer[] renderers;
+        try { renderers = _playerRoot.GetComponentsInChildren<Renderer>(); }
+        catch { return; }
+
+        if (renderers == null) return;
+
+        foreach (var renderer in renderers)
         {
-            if (renderer == null || !renderer.enabled) continue;
-            if (renderer.shadowCastingMode == ShadowCastingMode.ShadowsOnly) continue;
+            try
+            {
+                // Unity's overloaded == catches destroyed managed wrappers.
+                if (renderer == null || !renderer.enabled) continue;
+                if (renderer.shadowCastingMode == ShadowCastingMode.ShadowsOnly) continue;
 
-            // Keep hand-held items visible (weapons, tools, shields).
-            if (IsChildOf(renderer.transform, _leftHand) ||
-                IsChildOf(renderer.transform, _rightHand))
-                continue;
+                // Keep hand-held items visible (weapons, tools, shields).
+                if (IsChildOf(renderer.transform, _leftHand) ||
+                    IsChildOf(renderer.transform, _rightHand))
+                    continue;
 
-            // Experimental: keep lower-body meshes visible.
-            if (showBody && _characterRoot != null &&
-                renderer.transform.parent == _characterRoot &&
-                IsLowerBody(renderer.gameObject.name))
-                continue;
+                // Experimental: keep lower-body meshes visible.
+                if (showBody && _characterRoot != null &&
+                    renderer.transform.parent == _characterRoot &&
+                    IsLowerBody(renderer.gameObject.name))
+                    continue;
 
-            renderer.shadowCastingMode = ShadowCastingMode.ShadowsOnly;
-            _shadowOnlyRenderers.Add(renderer);
+                renderer.shadowCastingMode = ShadowCastingMode.ShadowsOnly;
+                _shadowOnlyRenderers.Add(renderer);
+            }
+            catch
+            {
+                // A renderer destroyed mid-iteration (or any interop hiccup)
+                // must not abort the rest of the scan — skip and continue.
+            }
         }
+
+        // Periodic rescans accumulate dead entries in the restore list;
+        // prune them so ShowPlayerModel doesn't iterate indefinitely-growing
+        // junk and so memory stays bounded across long sessions.
+        if (!rebuildCache && _shadowOnlyRenderers.Count > 0)
+            _shadowOnlyRenderers.RemoveAll(r => r == null);
 
         if (rebuildCache)
             FirstPersonPlugin.Log.LogInfo(
@@ -567,8 +621,16 @@ public class FirstPersonBehaviour : MonoBehaviour
     {
         foreach (var renderer in _shadowOnlyRenderers)
         {
-            if (renderer != null)
-                renderer.shadowCastingMode = ShadowCastingMode.On;
+            try
+            {
+                if (renderer != null)
+                    renderer.shadowCastingMode = ShadowCastingMode.On;
+            }
+            catch
+            {
+                // Renderer destroyed before we got the chance to restore it —
+                // nothing to restore, keep going.
+            }
         }
         _shadowOnlyRenderers.Clear();
     }
@@ -674,6 +736,17 @@ public class FirstPersonBehaviour : MonoBehaviour
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Validates that all components of a vector are finite (no NaN, no Inf).
+    /// A non-finite camera position assigned to a Unity Camera transform has
+    /// historically crashed URP's culling/shadow native code on the GPU side.
+    /// </summary>
+    private static bool IsFinite(Vector3 v)
+    {
+        return !(float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z)
+              || float.IsInfinity(v.x) || float.IsInfinity(v.y) || float.IsInfinity(v.z));
     }
 
     /// <summary>

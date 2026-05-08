@@ -21,3 +21,5 @@ Discovery/obj/
 
 # Developer scratch tools (DLL scanners, etc)
 .tools/
+
+.claude
